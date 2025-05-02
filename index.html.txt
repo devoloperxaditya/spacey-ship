@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Space Flappy</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 400px;
+            height: 600px;
+            background-color: #000;
+            overflow: hidden;
+            border: 2px solid #444;
+        }
+        
+        #game-canvas {
+            background-color: #000;
+        }
+        
+        #start-screen, #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            z-index: 10;
+        }
+        
+        #game-over {
+            display: none;
+        }
+        
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        #score-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="400" height="600"></canvas>
+        
+        <div id="score-display">0</div>
+        
+        <div id="start-screen">
+            <h1>Space Flappy</h1>
+            <p>Navigate your spaceship through celestial obstacles</p>
+            <button id="start-button">Start Game</button>
+        </div>
+        
+        <div id="game-over">
+            <h1>Game Over</h1>
+            <p id="final-score">Score: 0</p>
+            <button id="restart-button">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Game variables
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+        const scoreDisplay = document.getElementById('score-display');
+        const finalScoreDisplay = document.getElementById('final-score');
+        
+        let gameRunning = false;
+        let score = 0;
+        let gravity = 0.5;
+        let spaceshipY = canvas.height / 2;
+        let spaceshipVelocity = 0;
+        let spaceshipWidth = 40;
+        let spaceshipHeight = 30;
+        
+        // Obstacles (planets, moons, etc.)
+        let obstacles = [];
+        let obstacleWidth = 80;
+        let gapHeight = 150;
+        let obstacleSpeed = 2;
+        let obstacleFrequency = 1500; // milliseconds
+        let lastObstacleTime = 0;
+        
+        // Stars for background
+        let stars = [];
+        for (let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2,
+                speed: Math.random() * 0.5 + 0.1
+            });
+        }
+        
+        // Celestial bodies images (we'll use colored circles for simplicity)
+        const celestialBodies = [
+            { color: '#3498db', radius: 30, type: 'earth' }, // Blue for Earth
+            { color: '#e74c3c', radius: 25, type: 'mars' },  // Red for Mars
+            { color: '#f1c40f', radius: 20, type: 'moon' },  // Yellow for Moon
+            { color: '#9b59b6', radius: 35, type: 'jupiter' } // Purple for Jupiter
+        ];
+        
+        // Spaceship image (we'll use a simple triangle)
+        function drawSpaceship() {
+            ctx.save();
+            ctx.translate(100, spaceshipY);
+            
+            // Spaceship body
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(spaceshipWidth, spaceshipHeight / 2);
+            ctx.lineTo(0, spaceshipHeight);
+            ctx.closePath();
+            ctx.fillStyle = '#2ecc71';
+            ctx.fill();
+            
+            // Spaceship window
+            ctx.beginPath();
+            ctx.arc(spaceshipWidth / 3, spaceshipHeight / 2, 5, 0, Math.PI * 2);
+            ctx.fillStyle = '#3498db';
+            ctx.fill();
+            
+            // Engine flame
+            if (gameRunning) {
+                ctx.beginPath();
+                ctx.moveTo(0, spaceshipHeight / 4);
+                ctx.lineTo(-10 - Math.random() * 10, spaceshipHeight / 2);
+                ctx.lineTo(0, spaceshipHeight * 3/4);
+                ctx.fillStyle = '#e74c3c';
+                ctx.fill();
+            }
+            
+            ctx.restore();
+        }
+        
+        function drawStars() {
+            ctx.fillStyle = 'white';
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Move stars
+                star.x -= star.speed;
+                if (star.x < 0) {
+                    star.x = canvas.width;
+                    star.y = Math.random() * canvas.height;
+                }
+            });
+        }
+        
+        function drawObstacles() {
+            obstacles.forEach((obstacle, index) => {
+                // Top obstacle (planet/moon)
+                ctx.save();
+                ctx.translate(obstacle.x, obstacle.topY);
+                
+                // Draw celestial body
+                const body = celestialBodies.find(b => b.type === obstacle.type) || celestialBodies[0];
+                ctx.beginPath();
+                ctx.arc(body.radius, body.radius, body.radius, 0, Math.PI * 2);
+                ctx.fillStyle = body.color;
+                ctx.fill();
+                
+                // Add some details (simple circles)
+                if (obstacle.type === 'earth') {
+                    ctx.beginPath();
+                    ctx.arc(body.radius - 10, body.radius - 10, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#2980b9';
+                    ctx.fill();
+                } else if (obstacle.type === 'moon') {
+                    ctx.beginPath();
+                    ctx.arc(body.radius + 5, body.radius - 5, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = '#bdc3c7';
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+                
+                // Bottom obstacle (planet/moon)
+                ctx.save();
+                ctx.translate(obstacle.x, obstacle.bottomY);
+                
+                // Draw celestial body
+                const bottomBody = celestialBodies.find(b => b.type === obstacle.bottomType) || celestialBodies[2];
+                ctx.beginPath();
+                ctx.arc(bottomBody.radius, -bottomBody.radius, bottomBody.radius, 0, Math.PI * 2);
+                ctx.fillStyle = bottomBody.color;
+                ctx.fill();
+                
+                ctx.restore();
+                
+                // Move obstacle
+                obstacle.x -= obstacleSpeed;
+                
+                // Increase score if spaceship passes obstacle
+                if (obstacle.x + obstacleWidth < 100 && !obstacle.passed) {
+                    score++;
+                    scoreDisplay.textContent = score;
+                    obstacle.passed = true;
+                }
+            });
+            
+            // Remove obstacles that are off screen
+            obstacles = obstacles.filter(obstacle => obstacle.x + obstacleWidth > 0);
+        }
+        
+        function checkCollision() {
+            // Check if spaceship hits top or bottom
+            if (spaceshipY < 0 || spaceshipY + spaceshipHeight > canvas.height) {
+                gameOver();
+                return;
+            }
+            
+            // Check collision with obstacles
+            for (const obstacle of obstacles) {
+                const bodyTop = celestialBodies.find(b => b.type === obstacle.type) || celestialBodies[0];
+                const bodyBottom = celestialBodies.find(b => b.type === obstacle.bottomType) || celestialBodies[2];
+                
+                // Top obstacle collision
+                if (
+                    100 < obstacle.x + bodyTop.radius * 2 &&
+                    100 + spaceshipWidth > obstacle.x &&
+                    spaceshipY < obstacle.topY + bodyTop.radius * 2 &&
+                    spaceshipY + spaceshipHeight > obstacle.topY
+                ) {
+                    gameOver();
+                    return;
+                }
+                
+                // Bottom obstacle collision
+                if (
+                    100 < obstacle.x + bodyBottom.radius * 2 &&
+                    100 + spaceshipWidth > obstacle.x &&
+                    spaceshipY < obstacle.bottomY &&
+                    spaceshipY + spaceshipHeight > obstacle.bottomY - bodyBottom.radius * 2
+                ) {
+                    gameOver();
+                    return;
+                }
+            }
+        }
+        
+        function gameOver() {
+            gameRunning = false;
+            finalScoreDisplay.textContent = `Score: ${score}`;
+            gameOverScreen.style.display = 'flex';
+        }
+        
+        function resetGame() {
+            spaceshipY = canvas.height / 2;
+            spaceshipVelocity = 0;
+            obstacles = [];
+            score = 0;
+            scoreDisplay.textContent = '0';
+            lastObstacleTime = 0;
+        }
+        
+        function gameLoop(timestamp) {
+            if (!gameRunning) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            drawStars();
+            
+            // Update and draw spaceship
+            spaceshipVelocity += gravity;
+            spaceshipY += spaceshipVelocity;
+            drawSpaceship();
+            
+            // Generate new obstacles
+            if (timestamp - lastObstacleTime > obstacleFrequency) {
+                const gapPosition = Math.random() * (canvas.height - gapHeight - 100) + 50;
+                const topBodyType = celestialBodies[Math.floor(Math.random() * celestialBodies.length)].type;
+                const bottomBodyType = celestialBodies[Math.floor(Math.random() * celestialBodies.length)].type;
+                
+                obstacles.push({
+                    x: canvas.width,
+                    topY: gapPosition - celestialBodies.find(b => b.type === topBodyType).radius * 2,
+                    bottomY: gapPosition + gapHeight + celestialBodies.find(b => b.type === bottomBodyType).radius * 2,
+                    type: topBodyType,
+                    bottomType: bottomBodyType,
+                    passed: false
+                });
+                
+                lastObstacleTime = timestamp;
+                
+                // Slightly increase speed every 5 points
+                if (score > 0 && score % 5 === 0) {
+                    obstacleSpeed += 0.2;
+                }
+            }
+            
+            // Draw obstacles
+            drawObstacles();
+            
+            // Check for collisions
+            checkCollision();
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Event listeners
+        startButton.addEventListener('click', () => {
+            startScreen.style.display = 'none';
+            gameRunning = true;
+            resetGame();
+            requestAnimationFrame(gameLoop);
+        });
+        
+        restartButton.addEventListener('click', () => {
+            gameOverScreen.style.display = 'none';
+            gameRunning = true;
+            resetGame();
+            requestAnimationFrame(gameLoop);
+        });
+        
+        // Space bar to make the spaceship fly up
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameRunning) {
+                spaceshipVelocity = -8;
+                e.preventDefault();
+            }
+        });
+        
+        // Click/tap to make the spaceship fly up
+        canvas.addEventListener('click', () => {
+            if (gameRunning) {
+                spaceshipVelocity = -8;
+            }
+        });
+    </script>
+</body>
+</html>
